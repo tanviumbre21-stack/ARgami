@@ -1,0 +1,1853 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>ARgami - Augmented Reality Origami Tutor</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+
+<script async src="https://docs.opencv.org/4.x/opencv.js"></script>
+
+<style>
+:root {
+  --primary: #6039f3;
+  --primary-light: #f3effe;
+  --primary-border: #8a63e5;
+  --primary-shadow: rgba(96, 57, 243, 0.28);
+  --peach-bg: #fff3e6;
+  --peach-border: #f8e0c8;
+  --peach-accent: #e56a38;
+  --peach-icon-bg: #ffffff;
+  --green-check: #22c55e;
+  --border-subtle: #eeebf4;
+  --text-dark: #191629;
+  --text-muted: #797687;
+  --font-main: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+
+  /* how high the AR card sits (raised so the Netlify badge can't cover its buttons) */
+  --card-bottom: calc(92px + env(safe-area-inset-bottom, 0px));
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; margin: 0; padding: 0; }
+
+html, body {
+  width: 100%; height: 100%; overflow: hidden;
+  background: #0d0b16; color: #fff;
+  font-family: var(--font-main);
+  display: flex; align-items: center; justify-content: center;
+}
+
+/* =========================================================
+   APP FRAME (menus) - full screen on phones, framed on big screens
+   ========================================================= */
+.app-viewport {
+  width: 100%; height: 100%; height: 100dvh;
+  max-width: 440px; max-height: 920px;
+  position: relative;
+  background: #fffafd; color: var(--text-dark);
+  overflow: hidden;
+  display: flex; flex-direction: column;
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.45);
+}
+@media (min-width: 481px) and (min-height: 700px) {
+  .app-viewport { border-radius: 40px; height: 94vh; border: 8px solid #1c192b; }
+}
+@media (max-width: 480px) {
+  .app-viewport { max-width: 100%; max-height: 100%; border-radius: 0; border: none; }
+}
+
+/* ---------- header with logo + origami corner facets ---------- */
+.argami-header {
+  position: relative;
+  padding: calc(26px + env(safe-area-inset-top, 0px)) 20px 10px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; z-index: 2;
+}
+.argami-header::before {
+  content: ''; position: absolute; top: 0; left: 0; width: 105px; height: 75px;
+  background: linear-gradient(135deg, rgba(225,215,255,.85) 0%, rgba(240,230,255,.2) 60%),
+              linear-gradient(45deg, rgba(255,225,235,.7) 0%, transparent 60%);
+  clip-path: polygon(0 0, 100% 0, 45% 65%, 0 100%);
+  pointer-events: none;
+}
+.argami-header::after {
+  content: ''; position: absolute; top: 0; right: 0; width: 115px; height: 80px;
+  background: linear-gradient(225deg, rgba(222,255,200,.9) 0%, rgba(255,248,210,.5) 60%),
+              linear-gradient(180deg, rgba(255,220,235,.7) 0%, transparent 80%);
+  clip-path: polygon(100% 0, 0 0, 60% 75%, 100% 100%);
+  pointer-events: none;
+}
+
+/* text logo - swap for your real logo image if you have one:
+   <img src="logo.png" class="logo-img" alt="ARgami"> */
+.logo { position: relative; display: flex; align-items: flex-end; font-weight: 900; font-size: clamp(40px, 13vw, 56px); line-height: 1; letter-spacing: -2px; user-select: none; }
+.logo span { text-shadow: 2px 3px 0 rgba(0,0,0,.08); display: inline-block; }
+.logo span:nth-child(2) { transform: translateY(-2px) rotate(-3deg); }
+.logo span:nth-child(3) { transform: translateY(5px); }
+.logo span:nth-child(4) { transform: translateY(-2px) rotate(3deg); }
+.logo span:nth-child(5) { transform: translateY(3px); }
+.logo svg { width: 22px; height: 28px; margin-left: 2px; align-self: flex-start; }
+.logo-img { height: 52px; width: auto; display: block; }
+
+/* ---------- screens inside the frame ---------- */
+.screen-view {
+  flex: 1; display: none; flex-direction: column;
+  padding: 10px clamp(16px, 5.5vw, 24px) calc(20px + env(safe-area-inset-bottom, 0px));
+  overflow-y: auto; overflow-x: hidden;
+  animation: fadeIn .25s ease;
+}
+.screen-view.active { display: flex; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+.screen-pretitle { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: var(--peach-accent); margin-bottom: 2px; }
+.screen-title { font-size: clamp(22px, 6.4vw, 28px); font-weight: 800; color: var(--text-dark); line-height: 1.2; letter-spacing: -.4px; margin-bottom: 14px; }
+
+/* instructions */
+.instructions-card {
+  background: var(--peach-bg); border: 1.5px solid var(--peach-border);
+  border-radius: 22px; padding: 18px 16px;
+  display: flex; flex-direction: column; gap: 15px;
+  margin-bottom: 16px;
+}
+.instruction-row { display: flex; align-items: flex-start; gap: 13px; }
+.instruction-icon-box { width: 36px; height: 36px; border-radius: 11px; background: var(--peach-icon-bg); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.instruction-icon-box svg { width: 19px; height: 19px; stroke: var(--peach-accent); stroke-width: 2; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.instruction-text { font-size: 13.5px; line-height: 1.45; color: #3b374d; font-weight: 450; padding-top: 1px; }
+.instruction-text strong { color: #171424; font-weight: 750; }
+
+/* big purple button */
+.btn-bottom-primary {
+  margin-top: auto; width: 100%; flex-shrink: 0;
+  background: linear-gradient(135deg, #6039f3 0%, #794ff8 100%); color: #fff;
+  border: none; border-radius: 9999px; padding: 16px 20px;
+  font-size: 16px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase;
+  font-family: var(--font-main); cursor: pointer;
+  box-shadow: 0 8px 24px var(--primary-shadow);
+  transition: transform .2s, box-shadow .2s, opacity .2s;
+}
+.btn-bottom-primary:active:not(:disabled) { transform: scale(.98); }
+.btn-bottom-primary:disabled { opacity: .55; cursor: not-allowed; box-shadow: none; }
+.screen-view > .spacer { flex: 1; min-height: 8px; }
+
+/* model cards */
+.model-cards-container { display: flex; flex-direction: column; gap: 14px; margin-bottom: 20px; }
+.model-card {
+  position: relative; background: #fff; border: 1.5px solid var(--border-subtle);
+  border-radius: 20px; padding: 13px 14px; display: flex; align-items: center; gap: 14px;
+  cursor: pointer; transition: all .2s cubic-bezier(.2,.8,.2,1);
+  box-shadow: 0 3px 12px rgba(0,0,0,.04);
+}
+.model-card:active { transform: scale(.99); }
+.model-card.selected { border: 2px solid var(--primary-border); background: var(--primary-light); box-shadow: 0 8px 22px rgba(96,57,243,.14); }
+
+.model-icon-box { width: 58px; height: 58px; border-radius: 18px; display: flex; align-items: center; justify-content: center; position: relative; flex-shrink: 0; }
+.card-fox .model-icon-box { background: #fff3ec; }
+.card-tulip .model-icon-box { background: #edf8eb; }
+.model-icon-img { width: 44px; height: 44px; object-fit: contain; }
+
+.badge-check {
+  position: absolute; top: -5px; right: -5px; width: 20px; height: 20px; border-radius: 50%;
+  background: var(--green-check); color: #fff; display: none; align-items: center; justify-content: center;
+  border: 2px solid #fff; box-shadow: 0 2px 6px rgba(34,197,94,.4);
+}
+.badge-check svg { width: 11px; height: 11px; stroke: #fff; stroke-width: 3; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.model-card.selected .badge-check { display: flex; animation: popIn .25s cubic-bezier(.175,.885,.32,1.275); }
+@keyframes popIn { from { transform: scale(.4); } to { transform: scale(1); } }
+
+.model-details { flex: 1; min-width: 0; }
+.model-title { font-size: 18px; font-weight: 750; color: #171424; margin-bottom: 1px; }
+.model-subtitle { font-size: 13px; color: var(--text-muted); font-weight: 450; }
+.model-tag { display: inline-block; margin-top: 5px; padding: 2px 9px; border-radius: 10px; background: #f2eefd; color: #6a45e8; font-size: 11px; font-weight: 700; }
+
+.model-arrow-btn { width: 34px; height: 34px; border-radius: 50%; background: #f2eefd; color: #7952f5; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all .2s; }
+.model-arrow-btn svg { width: 16px; height: 16px; stroke: currentColor; stroke-width: 2.5; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.model-card.selected .model-arrow-btn { background: #6039f3; color: #fff; box-shadow: 0 4px 12px rgba(96,57,243,.3); }
+
+@media (max-height: 680px) {
+  .argami-header { padding-top: calc(14px + env(safe-area-inset-top, 0px)); }
+  .logo { font-size: 40px; }
+  .screen-title { margin-bottom: 8px; }
+  .instructions-card { gap: 10px; padding: 12px; }
+  .model-cards-container { gap: 10px; }
+  .model-card { padding: 9px 12px; }
+}
+
+/* =========================================================
+   CELEBRATION SCREEN
+   ========================================================= */
+.screen-finish {
+  position: fixed; inset: 0; z-index: 40;
+  background: linear-gradient(150deg, #231d3f 0%, #0d0b16 100%);
+  display: none; flex-direction: column; align-items: center; justify-content: center;
+  padding: 24px; text-align: center; color: #fff; overflow-y: auto;
+}
+.finish-icon-wrap {
+  width: 100px; height: 100px; border-radius: 30px; background: rgba(255,255,255,.08);
+  border: 1px solid rgba(255,255,255,.15); display: flex; align-items: center; justify-content: center;
+  margin-bottom: 16px; font-size: 52px; animation: bounceIn 1s infinite alternate ease-in-out;
+}
+@keyframes bounceIn { from { transform: translateY(0); } to { transform: translateY(-6px); } }
+.screen-finish h1 { font-size: clamp(26px, 7vw, 32px); font-weight: 800; margin-bottom: 6px; }
+.screen-finish p { font-size: 15px; opacity: .8; margin-bottom: 26px; }
+.screen-finish .btn-bottom-primary { margin-top: 0; max-width: 320px; }
+
+/* =========================================================
+   AR MODE (camera + overlay) - only visible while folding
+   ========================================================= */
+#camera { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1; background: #111; display: none; }
+#overlay { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 5; pointer-events: none; display: none; }
+#top, #tools, #reference, #card { display: none; }
+body.ar #camera, body.ar #overlay { display: block; }
+body.ar #top { display: flex; }
+body.ar #tools { display: flex; }
+body.ar #reference { display: flex; }
+body.ar #card { display: block; }
+body.ar .app-viewport { display: none; }
+
+#top { position: fixed; top: calc(8px + env(safe-area-inset-top, 0px)); left: 0; right: 0; z-index: 20; flex-direction: column; align-items: center; gap: 6px; pointer-events: none; }
+#status { padding: 7px 14px; border-radius: 30px; background: rgba(0,0,0,.78); backdrop-filter: blur(6px); font-size: 13px; font-weight: 700; text-align: center; max-width: 94%; color: #fff; transition: background .25s; }
+#status.good { background: rgba(25,130,75,.95); }
+#status.warn { background: rgba(190,110,0,.95); }
+#dots { display: flex; gap: 6px; }
+#dots i { width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,.3); transition: all .3s; }
+#dots i.done { background: #00d27a; }
+#dots i.now { background: #fff; transform: scale(1.3); }
+
+#tools { position: fixed; top: calc(62px + env(safe-area-inset-top, 0px)); left: 0; right: 0; z-index: 25; flex-direction: row; justify-content: center; gap: 5px; padding: 0 6px; }
+#tools button { border: none; border-radius: 12px; padding: 5px 8px; background: rgba(0,0,0,.6); color: #fff; font-size: 11px; font-weight: 700; font-family: var(--font-main); }
+
+/* goal picture on the side (fox or tulip) */
+#reference { position: fixed; top: calc(96px + env(safe-area-inset-top, 0px)); right: 8px; z-index: 25; background: rgba(0,0,0,.45); padding: 4px; border-radius: 12px; pointer-events: none; }
+#refImg { width: 64px; height: 76px; object-fit: contain; display: block; }
+
+/* small instruction card */
+#card {
+  position: fixed; bottom: var(--card-bottom); left: 50%; transform: translateX(-50%); z-index: 20;
+  width: min(94%, 460px); padding: 10px 14px; border-radius: 18px;
+  background: rgba(18,16,28,.84); backdrop-filter: blur(10px);
+  border: 1px solid rgba(255,255,255,.1); text-align: center; color: #fff;
+}
+#card.flash { animation: flash .7s ease; }
+@keyframes flash { 0% { box-shadow: 0 0 0 0 rgba(0,255,136,.9); } 100% { box-shadow: 0 0 0 40px rgba(0,255,136,0); } }
+#cardBody.swap { animation: swap .45s ease; }
+@keyframes swap { 0% { opacity: 0; transform: translateY(8px); } 100% { opacity: 1; transform: none; } }
+#chip { display: none; margin: 0 auto 4px; padding: 2px 10px; border-radius: 10px; font-size: 11px; font-weight: 800; letter-spacing: .5px; width: max-content; max-width: 100%; }
+#stepLabel { font-size: 10px; font-weight: 800; letter-spacing: 1.2px; color: #ff9f43; margin-bottom: 2px; }
+#stepTitle { font-size: 18px; font-weight: 800; margin-bottom: 2px; }
+#stepText { font-size: 14px; line-height: 1.3; opacity: .92; }
+#bar { height: 5px; border-radius: 3px; background: rgba(255,255,255,.18); margin: 8px 0; overflow: hidden; }
+#barFill { display: block; height: 100%; width: 0%; background: linear-gradient(90deg, #00d27a, #00ff88); transition: width .2s ease-out; }
+#btns { display: flex; gap: 8px; justify-content: center; }
+#btns button { border: none; border-radius: 18px; padding: 8px 14px; font-size: 13px; font-weight: 700; font-family: var(--font-main); background: rgba(255,255,255,.15); color: #fff; }
+#btns button.main { background: #fff; color: #111; }
+#btns button:disabled { opacity: .3; }
+
+#debug { position: fixed; left: 8px; top: calc(100px + env(safe-area-inset-top, 0px)); z-index: 50; padding: 6px 9px; border-radius: 8px; background: rgba(0,0,0,.75); color: #00ff88; font: 11px/1.5 monospace; white-space: pre; display: none; pointer-events: none; }
+
+/* big screens: the Netlify badge is far away from the centred card */
+@media (min-width: 1040px) { :root { --card-bottom: 16px; } }
+
+/* phone held sideways: card moves to the left corner so it never covers the paper or the badge */
+@media (orientation: landscape) and (max-height: 520px) {
+  #card { left: 12px; transform: none; bottom: 12px; width: min(48%, 400px); padding: 8px 12px; }
+  #stepTitle { font-size: 16px; }
+  #stepText { font-size: 13px; }
+  #bar { margin: 6px 0; }
+  #tools { top: 8px; justify-content: flex-start; left: 8px; right: auto; }
+  #top { top: 8px; }
+  #reference { top: 8px; }
+}
+</style>
+</head>
+
+<body>
+
+<!-- ================= AR LAYERS ================= -->
+<video id="camera" autoplay playsinline muted></video>
+<canvas id="overlay"></canvas>
+
+<div id="top">
+  <div id="status">Looking for paper...</div>
+  <div id="dots"></div>
+</div>
+
+<div id="tools">
+  <button id="modelBtn">Change model</button>
+  <button id="whiteBtn">White paper</button>
+  <button id="debugBtn">Debug</button>
+  <button id="voiceBtn">Voice: On</button>
+</div>
+
+<div id="reference">
+  <img id="refImg" src="fox.png" alt="Goal">
+</div>
+
+<div id="card">
+  <div id="cardBody">
+    <div id="chip"></div>
+    <div id="stepLabel"></div>
+    <div id="stepTitle"></div>
+    <div id="stepText"></div>
+  </div>
+  <div id="bar"><i id="barFill"></i></div>
+  <div id="btns">
+    <button id="backBtn">&lsaquo; Back</button>
+    <button id="hearBtn">&#128266;</button>
+    <button id="nextBtn">Skip &rsaquo;</button>
+  </div>
+</div>
+
+<div id="debug"></div>
+
+<!-- ================= MENUS ================= -->
+<div class="app-viewport">
+
+  <header class="argami-header">
+    <div class="logo" aria-label="ARgami">
+      <span style="color:#8be000">A</span><span style="color:#7b2ff7">R</span><span style="color:#ff8a00">g</span><span style="color:#ff2d87">a</span><span style="color:#ff8a00">m</span><span style="color:#8a2be2">i</span>
+      <svg viewBox="0 0 22 28" aria-hidden="true"><path d="M11 0 L14 11 L22 14 L14 17 L11 28 L8 17 L0 14 L8 11 Z" fill="#ffb800"/></svg>
+    </div>
+  </header>
+
+  <!-- 1. Instructions -->
+  <section class="screen-view active" id="screenInstr">
+    <div class="screen-pretitle">Before you begin</div>
+    <h1 class="screen-title">Instructions</h1>
+
+    <div class="instructions-card">
+      <div class="instruction-row">
+        <div class="instruction-icon-box"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="1"/><path d="M4 4l16 16"/></svg></div>
+        <div class="instruction-text">Use a <strong>square</strong> sheet of paper.</div>
+      </div>
+      <div class="instruction-row">
+        <div class="instruction-icon-box"><svg viewBox="0 0 24 24"><path d="M3 9h18M5 9v10M19 9v10M3 9l2-4h14l2 4"/></svg></div>
+        <div class="instruction-text">Put it on a plain table that is a <strong>different colour</strong> from the paper. Keep other white things out of view.</div>
+      </div>
+      <div class="instruction-row">
+        <div class="instruction-icon-box"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="10" rx="1.5"/><path d="M4 21h16M12 13v8"/></svg></div>
+        <div class="instruction-text">Hold the phone above the paper and keep it at the <strong>same height</strong> the whole time.</div>
+      </div>
+      <div class="instruction-row">
+        <div class="instruction-icon-box"><svg viewBox="0 0 24 24"><path d="M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11z"/></svg></div>
+        <div class="instruction-text">Using coloured paper? <strong>Tap the paper</strong> on screen once so the app learns its colour.</div>
+      </div>
+      <div class="instruction-row">
+        <div class="instruction-icon-box"><svg viewBox="0 0 24 24"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10.5c.7.7 1 1.5 1 2.5h6c0-1 .3-1.8 1-2.5A6 6 0 0 0 12 3z"/></svg></div>
+        <div class="instruction-text">Good light, no hands covering the paper when you hold still.</div>
+      </div>
+      <div class="instruction-row">
+        <div class="instruction-icon-box"><svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9H4zM16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/></svg></div>
+        <div class="instruction-text">Turn your <strong>sound on</strong> &mdash; a voice reads out each main step.</div>
+      </div>
+    </div>
+
+    <div class="spacer"></div>
+    <button class="btn-bottom-primary" id="btnToModels">Continue</button>
+  </section>
+
+  <!-- 2. Choose a model -->
+  <section class="screen-view" id="screenModels">
+    <h1 class="screen-title">What will you make today?</h1>
+
+    <div class="model-cards-container">
+      <div class="model-card card-fox" data-m="fox" role="button" tabindex="0">
+        <div class="model-icon-box">
+          <img class="model-icon-img" src="fox.png" alt="Fox">
+          <div class="badge-check"><svg viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></svg></div>
+        </div>
+        <div class="model-details">
+          <div class="model-title">Fox</div>
+          <div class="model-subtitle">A clever little creation</div>
+          <span class="model-tag">1 sheet &middot; any colour</span>
+        </div>
+        <div class="model-arrow-btn"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></div>
+      </div>
+
+      <div class="model-card card-tulip" data-m="tulip" role="button" tabindex="0">
+        <div class="model-icon-box">
+          <img class="model-icon-img" id="iconTulip" alt="Tulip">
+          <div class="badge-check"><svg viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></svg></div>
+        </div>
+        <div class="model-details">
+          <div class="model-title">Tulip</div>
+          <div class="model-subtitle">Let your creativity bloom</div>
+          <span class="model-tag">2 sheets &middot; red/pink + green</span>
+        </div>
+        <div class="model-arrow-btn"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></div>
+      </div>
+    </div>
+
+    <div class="spacer"></div>
+    <button class="btn-bottom-primary" id="startBtn" disabled>Choose one</button>
+  </section>
+
+</div>
+
+<!-- 3. Celebration -->
+<div class="screen-finish" id="finish">
+  <div class="finish-icon-wrap" id="finishEmoji">&#127881;</div>
+  <h1 id="finishTitle">You did it!</h1>
+  <p>Amazing folding. Show it to someone!</p>
+  <button class="btn-bottom-primary" id="againBtn">Make another</button>
+</div>
+
+
+<script>
+/* =========================================================
+   PICTURES  (keep these files next to this HTML file)
+     fox.png          - the fox face
+     tulip_flower.png - the finished flower only (shown on the paper at tulip step 6)
+     tulip_whole.png  - flower + stem (shown at the end, and as the side goal picture)
+   ========================================================= */
+const IMGS = { tulipFlower: "tulip_flower.png", tulipWhole: "tulip_whole.png" };
+
+/* =========================================================
+   MODELS  (add new origami here)
+
+   Step fields:
+     text      = ONE short sentence. Shown on the card AND read aloud.
+     area      = visible paper area compared with the flat sheet (1.0)
+     tol       = how far from that area still counts
+     verts     = allowed corner counts of the silhouette
+     scaleFree = optional function: passes by SHAPE only (works at any phone height)
+     manual    = button text for steps the camera cannot fully judge
+     auto      = "flip" or "fold": manual step that moves on by itself when the
+                 paper is disturbed (hand/flip) and then settles again
+     autoFold  = minimum area change that counts as a fold (default 0.07)
+     hint      = status text for manual steps
+     overlay   = name from IMGS: that picture is drawn on top of the tracked paper
+     overlayMode = "wide" (wide end is the top, e.g. the flower) or "upright" (keep upright)
+     both      = track BOTH the flower colour and the stem colour together
+   ========================================================= */
+const TULIP_REF = "data:image/svg+xml," + encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">' +
+  '<path d="M46 62 L54 62 L54 94 L46 94 Z" fill="#7ac143" stroke="#333" stroke-width="1.5"/>' +
+  '<path d="M54 88 L84 76 L82 94 L54 94 Z" fill="#7ac143" stroke="#333" stroke-width="1.5"/>' +
+  '<path d="M16 14 L34 30 L50 12 L66 30 L84 14 L78 46 L50 66 L22 46 Z" fill="#ff7a7a" stroke="#333" stroke-width="1.5" stroke-linejoin="round"/></svg>');
+
+const RED   = { name: "RED / PINK", css: "#e84a4a" };
+const GREEN = { name: "GREEN",      css: "#3a9a2e" };
+
+const MODELS = {
+  fox: {
+    name: "fox", emoji: "\uD83E\uDD8A", ref: "fox.png",
+    finishTitle: "You made a fox!",
+    steps: [
+      { key: "place",   title: "Place the paper",
+        text: "Put the paper flat, corner up." },
+
+      { key: "half",    title: "Fold in half",
+        text: "Fold the bottom corner up to the top corner.",
+        area: 0.50,  tol: 0.13, verts: [3], scaleFree: s => isRightTri(s.alt && s.alt[3]) },
+
+      { key: "apex",    title: "Fold the tip down",
+        text: "Fold the top tip down.",
+        area: 0.40,  tol: 0.12, verts: [4, 5], sol: [0.83, 1.01],
+        scaleFree: s => isApexTrapezoid(s) },
+
+      { key: "corners", title: "Fold both corners in",
+        text: "Fold both bottom corners in to the middle.",
+        area: 0.32,  tol: 0.12, verts: [4, 5, 6, 7, 8], sol: [0.68, 1.01],
+        scaleFree: s => isFoxFace(s) },
+
+      { key: "flip",    title: "Turn it over",
+        text: "Turn it over.",
+        sol: [0.68, 1.01],
+        manual: "I turned it over", auto: "flip", hint: "Turn it over, then hold still" },
+
+      { key: "face",    title: "Draw the face",
+        text: "Draw the face like the picture.",
+        sol: [0.68, 1.01],
+        manual: "Finished!", hint: "Draw the face, then tap Finished" }
+    ],
+    speech: { done: "Well done! You made a fox!" }
+  },
+
+  tulip: {
+    name: "tulip", emoji: "\uD83C\uDF37", ref: "tulip_whole.png",
+    finishTitle: "You made a tulip!",
+    steps: [
+      /* 1 */ { key: "fplace", place: true, part: "FLOWER", color: RED, title: "Red paper",
+        text: "Put the red paper flat, corner up. Tap it once." },
+
+      /* 2 */ { key: "half", part: "FLOWER", color: RED, title: "Fold in half",
+        text: "Fold the bottom corner up to the top corner.",
+        area: 0.50, tol: 0.13, verts: [3], scaleFree: s => isRightTri(s.alt[3]) },
+
+      /* 3 */ { key: "tf1", part: "FLOWER", color: RED, title: "Right corner over",
+        text: "Fold the right corner over to the left.",
+        manual: "I folded it", auto: "fold", hint: "Fold along the red line, then hold still" },
+
+      /* 4 */ { key: "tf2", part: "FLOWER", color: RED, title: "Left corner over",
+        text: "Fold the left corner over to the right.",
+        manual: "I folded it", auto: "fold", hint: "Fold the left side over, then hold still" },
+
+      /* 5 */ { key: "tf3", part: "FLOWER", color: RED, title: "Tip behind",
+        text: "Fold the bottom tip behind.",
+        manual: "Flower done!", auto: "fold", autoFold: 0.05, hint: "Fold the tip behind, then hold still" },
+
+      /* 6 - NEW: flower picture on top of the folded flower */
+      /* 6 */ { key: "fshow", part: "FLOWER", color: RED, title: "Your flower",
+        text: "Does it look like the picture?",
+        manual: "Looks right!", overlay: "tulipFlower", overlayMode: "wide",
+        hint: "Compare it with the picture, then tap the button" },
+
+      /* 7 */ { key: "splace", place: true, newPaper: true, part: "STEM", color: GREEN, title: "Green paper",
+        text: "Now the green paper. Flat, corner up. Tap it once." },
+
+      /* 8 */ { key: "sf1", part: "STEM", color: GREEN, title: "Fold corners in",
+        text: "Fold both side corners to the middle.",
+        area: 0.38, tol: 0.17, verts: [4, 5] },
+
+      /* 9 */ { key: "sf2", part: "STEM", color: GREEN, title: "Bottom up",
+        text: "Fold the bottom point up.",
+        manual: "I folded it", auto: "fold", autoFold: 0.05, hint: "Fold the bottom point up, then hold still" },
+
+      /* 10 */ { key: "sf3", part: "STEM", color: GREEN, title: "Fold in half",
+        text: "Fold it in half.",
+        manual: "I folded it", auto: "fold", hint: "Fold in half, then hold still" },
+
+      /* 11 */ { key: "join", part: "FLOWER + STEM", title: "Stick together",
+        text: "Stick the stem under the flower.",
+        manual: "I stuck it", both: true, hint: "Stick them together, then tap the button" },
+
+      /* 12 - NEW: whole tulip picture on top of flower + stem together */
+      /* 12 */ { key: "twhole", part: "TULIP", title: "Your tulip",
+        text: "Your tulip is ready!",
+        manual: "Finished!", both: true, overlay: "tulipWhole", overlayMode: "upright",
+        hint: "Does it look like the picture? Tap Finished" }
+    ],
+    speech: { done: "Well done! You made a tulip!" }
+  }
+};
+
+let modelKey = "fox";
+let STEPS = MODELS.fox.steps;
+let SPEECH = MODELS.fox.speech;
+const isPlace = st => !!st && (st.key === "place" || st.place === true);
+
+/* which steps have a red dotted fold guide, and how many corners
+   the paper should have when the guide is drawn (first choice first) */
+const GUIDE_N = {
+  half: [4],
+  apex: [3],
+  corners: [4],
+  tf1: [3],
+  tf3: [3, 4, 5],
+  sf1: [4]
+};
+
+const REQUIRED_HOLD   = 4;     // good checks in a row (~0.5 second)
+const DETECT_MS       = 120;   // how often we analyse a frame
+const PASS_SCORE      = 0.70;  // match score needed (0 to 1)
+const LOST_TICKS_MAX  = 6;     // keep last shape this long if it vanishes
+const ADVANCE_MS      = 750;   // pause on the green tick before the next step
+const MIN_FRAC        = 0.05;  // paper must fill at least this much of the frame
+const GUIDE_GRACE     = 10;    // ticks the guide stays when the paper is briefly hidden (~1 second)
+const SETTLE_TICKS    = 8;     // ticks of holding still before auto-advance (~1 second)
+
+
+/* =========================================================
+   ELEMENTS + STATE
+   ========================================================= */
+const $ = id => document.getElementById(id);
+const video = $("camera"), canvas = $("overlay"), ctx = canvas.getContext("2d");
+const work = document.createElement("canvas");
+const wctx = work.getContext("2d", { willReadFrequently: true });
+
+const statusEl = $("status"), card = $("card"), barFill = $("barFill");
+
+let W = 0, H = 0;
+let cvReady = false, running = false, audio = null, loopsStarted = false;
+let chosen = false;             // has the child picked a model yet?
+
+let idx = 0;
+let baseArea = 0;
+let baseAcc = [];
+let hold = 0;
+let advancing = false;
+let paperColor = null;          // null = white paper mode
+let whitePaperV = 160;          // calibrated brightness threshold for white paper
+let whitePaperS = 55;           // calibrated saturation upper bound for white paper
+let paperPos = null;            // spatial lock: last known center of the paper in work coords
+let flowerColor = null;         // tulip: colour of the flower paper (kept while the stem is made)
+let flowerSaved = false;
+let lastScale = 1;
+let lastT = 0;
+let disp = null;                // smoothed corner points used for drawing the outline
+
+/* The fold guide is ALWAYS worked out from the paper the camera sees right now,
+   so it sits on the real paper. It is only kept for a moment (GUIDE_GRACE) if
+   the paper is briefly hidden by a hand. */
+const guide = { pts: null, disp: null, miss: 0 };
+
+/* watches manual steps: did the paper get disturbed and then settle again? */
+let watch = { start: 0, last: 0, stable: 0, disturbed: false };
+
+const state = { shape: null, lost: 0, score: 0, ratio: 0 };
+
+
+/* =========================================================
+   SHAPE HELPERS (work at any phone height / paper angle)
+   ========================================================= */
+function angleAt(p, a, b) {
+  const v1 = { x: a.x - p.x, y: a.y - p.y }, v2 = { x: b.x - p.x, y: b.y - p.y };
+  const c = (v1.x * v2.x + v1.y * v2.y) / ((Math.hypot(v1.x, v1.y) * Math.hypot(v2.x, v2.y)) || 1);
+  return Math.acos(Math.max(-1, Math.min(1, c))) * 180 / Math.PI;
+}
+function polyAngles(p) {
+  return p.map((q, i) => angleAt(q, p[(i + p.length - 1) % p.length], p[(i + 1) % p.length]));
+}
+function edgeLens(p) {
+  return p.map((q, i) => Math.hypot(q.x - p[(i + 1) % p.length].x, q.y - p[(i + 1) % p.length].y));
+}
+/* triangle with one ~90 degree corner and two ~45 degree corners */
+function isRightTri(p) {
+  if (!p || p.length !== 3) return false;
+  const a = polyAngles(p).sort((x, y) => y - x);
+  return a[0] > 72 && a[0] < 108 && a[1] > 28 && a[2] > 28;
+}
+/* diamond / square outline */
+function squareish(p) {
+  if (!p || p.length !== 4) return false;
+  const a = polyAngles(p), e = edgeLens(p);
+  return a.every(x => x > 62 && x < 118) && Math.min(...e) / Math.max(...e) > 0.6;
+}
+/* trapezoid: top tip folded down (two ~45 degree base corners, two ~135 degree top corners) */
+function isTrapezoid(p) {
+  if (!p || p.length !== 4) return false;
+  const a = polyAngles(p).sort((x, y) => y - x);
+  const obtuse = a[0] > 100 && a[0] < 165 && a[1] > 100 && a[1] < 165;
+  const acute = a[2] > 22 && a[2] < 78 && a[3] > 22 && a[3] < 78;
+  if (!obtuse || !acute) return false;
+  const e = edgeLens(p).sort((x, y) => y - x);
+  return (e[0] / Math.max(1, e[3])) > 1.35;
+}
+/* apex step detector: checks geometric trapezoid dimensions */
+function isApexTrapezoid(sh) {
+  if (!sh) return false;
+  if (sh.alt && sh.alt[4] && isTrapezoid(sh.alt[4])) return true;
+  if (sh.pts && sh.pts.length === 4 && isTrapezoid(sh.pts)) return true;
+  const aspectOk = sh.aspect >= 1.45 && sh.aspect <= 4.0;
+  const solOk = sh.solidity >= 0.83;
+  const vertsOk = sh.verts === 4 || sh.verts === 5;
+  const ratio = baseArea ? (sh.area / baseArea) : 0.40;
+  const ratioOk = ratio >= 0.28 && ratio <= 0.52;
+  return aspectOk && solOk && vertsOk && ratioOk;
+}
+/* fox face: two ears at top with notch, pointed chin at bottom */
+function isFoxFace(sh) {
+  if (!sh) return false;
+  const ratio = baseArea ? (sh.area / baseArea) : 0.32;
+  const ratioOk = ratio >= 0.20 && ratio <= 0.44;
+  const aspectOk = sh.aspect >= 0.82 && sh.aspect <= 1.65;
+  const solOk = sh.solidity >= 0.68 && sh.solidity <= 0.91;
+  const vertsOk = (sh.verts >= 4 && sh.verts <= 8) || (sh.alt && (sh.alt[5] || sh.alt[6] || sh.alt[7]));
+
+  if (solOk && aspectOk && ratioOk) return true;
+  if (ratioOk && vertsOk && sh.solidity <= 0.92 && aspectOk) return true;
+  return false;
+}
+
+/* what the paper must look like BEFORE each fold - the guide only shows then */
+const BEFORE = {
+  half:    s => squareish(s.alt && s.alt[4]),
+  apex:    s => isRightTri(s.alt && s.alt[3]),
+  corners: s => { const p = (s.alt && s.alt[4]) || (s.pts && s.pts.length === 4 ? s.pts : null); if (!p) return false; const e = edgeLens(p); return Math.max(...e) / Math.min(...e) > 1.35; },
+  tf1:     s => isRightTri(s.alt && s.alt[3]),
+  tf3:     s => !!(s.alt && (s.alt[3] || s.alt[4] || s.alt[5])),
+  sf1:     s => squareish(s.alt && s.alt[4])
+};
+
+
+/* =========================================================
+   PICTURE LOADER (trims the empty space around transparent pictures)
+   ========================================================= */
+const imgCache = {};
+function getImg(key) {
+  let e = imgCache[key];
+  if (!e) {
+    e = imgCache[key] = { ready: false, el: null };
+    const im = new Image();
+    im.onload = () => {
+      let out = im;
+      try {
+        const c = document.createElement("canvas");
+        c.width = im.naturalWidth; c.height = im.naturalHeight;
+        const g = c.getContext("2d");
+        g.drawImage(im, 0, 0);
+        const d = g.getImageData(0, 0, c.width, c.height).data;
+        let x0 = c.width, y0 = c.height, x1 = -1, y1 = -1;
+        for (let y = 0; y < c.height; y++) {
+          for (let x = 0; x < c.width; x++) {
+            if (d[(y * c.width + x) * 4 + 3] > 20) {
+              if (x < x0) x0 = x; if (x > x1) x1 = x;
+              if (y < y0) y0 = y; if (y > y1) y1 = y;
+            }
+          }
+        }
+        if (x1 >= x0 && y1 >= y0) {
+          const t = document.createElement("canvas");
+          t.width = x1 - x0 + 1; t.height = y1 - y0 + 1;
+          t.getContext("2d").drawImage(c, x0, y0, t.width, t.height, 0, 0, t.width, t.height);
+          out = t;
+        }
+      } catch (err) { /* if trimming is blocked, just use the picture as it is */ }
+      e.el = out; e.ready = true;
+    };
+    im.src = IMGS[key];
+  }
+  return e.ready ? e.el : null;
+}
+getImg("tulipFlower"); getImg("tulipWhole");
+
+
+/* =========================================================
+   MENUS: screens + model picker
+   ========================================================= */
+const screens = { instr: $("screenInstr"), models: $("screenModels") };
+function showScreen(name) {
+  Object.keys(screens).forEach(k => screens[k].classList.toggle("active", k === name));
+}
+
+function updateStartBtn() {
+  const b = $("startBtn");
+  if (!chosen)       { b.textContent = "Choose one";        b.disabled = true; }
+  else if (!cvReady) { b.textContent = "Loading vision..."; b.disabled = true; }
+  else               { b.textContent = "Start";             b.disabled = false; }
+}
+
+function selectModel(key, fromUser) {
+  modelKey = key;
+  STEPS = MODELS[key].steps;
+  SPEECH = MODELS[key].speech;
+  $("refImg").src = MODELS[key].ref;
+  if (fromUser) chosen = true;
+  document.querySelectorAll(".model-card").forEach(c => c.classList.toggle("selected", chosen && c.dataset.m === key));
+  updateStartBtn();
+}
+
+/* if a picture file is missing, fall back so nothing looks broken */
+$("iconTulip").addEventListener("error", () => { $("iconTulip").src = TULIP_REF; });
+$("refImg").addEventListener("error", () => {
+  if (modelKey === "tulip") $("refImg").src = TULIP_REF;
+  else if ($("refImg").src.endsWith("fox.png")) $("refImg").src = "Fox.png";
+});
+$("iconTulip").src = IMGS.tulipWhole;
+
+document.querySelectorAll(".model-card").forEach(c => {
+  c.addEventListener("click", () => selectModel(c.dataset.m, true));
+  c.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectModel(c.dataset.m, true); } });
+});
+$("btnToModels").addEventListener("click", () => showScreen("models"));
+selectModel("fox", false);
+
+
+/* =========================================================
+   VOICE - reads ONE short sentence per step
+   ========================================================= */
+let voiceOn = true;
+
+function speak(text) {
+  if (!voiceOn || !("speechSynthesis" in window) || !text) return;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = "en-US"; u.rate = 0.92;
+  const v = speechSynthesis.getVoices().find(v => v.lang.startsWith("en"));
+  if (v) u.voice = v;
+  speechSynthesis.speak(u);
+}
+
+$("voiceBtn").addEventListener("click", () => {
+  voiceOn = !voiceOn;
+  $("voiceBtn").textContent = "Voice: " + (voiceOn ? "On" : "Off");
+  if (!voiceOn && "speechSynthesis" in window) speechSynthesis.cancel();
+});
+$("hearBtn").addEventListener("click", () => {
+  const was = voiceOn; voiceOn = true;
+  if (STEPS[idx]) speak(STEPS[idx].text);
+  voiceOn = was;
+});
+
+
+/* =========================================================
+   KEEP THE SCREEN AWAKE WHILE FOLDING
+   ========================================================= */
+let wake = null;
+async function keepAwake() { try { if ("wakeLock" in navigator) wake = await navigator.wakeLock.request("screen"); } catch (e) {} }
+function releaseAwake() { try { if (wake) wake.release(); } catch (e) {} wake = null; }
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && running) keepAwake(); });
+
+
+/* =========================================================
+   CANVAS SIZE (follows rotation / resizing)
+   ========================================================= */
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  disp = null; guide.disp = null;
+}
+resize();
+window.addEventListener("resize", resize);
+window.addEventListener("orientationchange", () => setTimeout(resize, 250));
+
+
+/* =========================================================
+   OPENCV READY
+   ========================================================= */
+(function waitCV() {
+  if (typeof cv !== "undefined" && cv.Mat) {
+    cvReady = true;
+    updateStartBtn();
+    return;
+  }
+  setTimeout(waitCV, 250);
+})();
+
+
+/* =========================================================
+   START / CAMERA
+   ========================================================= */
+$("startBtn").addEventListener("click", async () => {
+  if (!chosen || !cvReady) return;
+
+  // unlock speech on phones (must happen inside the tap)
+  try { speechSynthesis.speak(new SpeechSynthesisUtterance("")); } catch (e) {}
+
+  if (!audio) {
+    try { audio = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
+  }
+
+  try {
+    if (!video.srcObject) {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false
+      });
+      video.srcObject = stream;
+    }
+
+    document.body.classList.add("ar");
+    try { await video.play(); } catch (e) {}
+    resize();
+    keepAwake();
+
+    running = true;
+    restart();
+    if (!loopsStarted) {
+      loopsStarted = true;
+      requestAnimationFrame(tick);
+      requestAnimationFrame(render);
+    }
+  } catch (err) {
+    console.error(err);
+    $("startBtn").textContent = "Camera blocked - allow it & retry";
+    setTimeout(updateStartBtn, 3500);
+  }
+});
+
+function backToMenu() {
+  running = false;
+  advancing = false;
+  if ("speechSynthesis" in window) speechSynthesis.cancel();
+  document.body.classList.remove("ar");
+  releaseAwake();
+  showScreen("models");
+}
+$("modelBtn").addEventListener("click", backToMenu);
+
+
+/* =========================================================
+   UI HELPERS
+   ========================================================= */
+function buildDots() {
+  $("dots").innerHTML = STEPS.map(() => "<i></i>").join("");
+}
+
+function clearGuide() { guide.pts = null; guide.disp = null; guide.miss = 0; }
+
+function updateUI() {
+  const s = STEPS[idx];
+  $("stepLabel").textContent = "STEP " + (idx + 1) + "/" + STEPS.length + (s.part ? "  \u00B7  " + s.part : "");
+  const chip = $("chip");
+  if (s.color) {
+    chip.style.display = "block";
+    chip.textContent = s.color.name + " paper";
+    chip.style.background = s.color.css; chip.style.color = "#fff";
+  } else chip.style.display = "none";
+  $("stepTitle").textContent = s.title;
+  $("stepText").textContent = s.text;
+
+  const body = $("cardBody");
+  body.classList.remove("swap"); void body.offsetWidth; body.classList.add("swap");
+
+  const nb = $("nextBtn");
+  if (s.manual) { nb.textContent = s.manual; nb.className = "main"; }
+  else          { nb.textContent = "Skip \u203A"; nb.className = ""; }
+  $("backBtn").disabled = idx === 0;
+
+  [...$("dots").children].forEach((d, i) => {
+    d.className = i < idx ? "done" : (i === idx ? "now" : "");
+  });
+
+  clearGuide();
+  watch = { start: 0, last: 0, stable: 0, disturbed: false };
+  updateGuide(s, state.shape);
+
+  speak(s.text);
+}
+
+function setStatus(text, kind) {
+  statusEl.textContent = text;
+  statusEl.className = kind || "";
+}
+
+function beep(freq, dur) {
+  try {
+    if (!audio) return;
+    const o = audio.createOscillator(), g = audio.createGain();
+    o.frequency.value = freq; g.gain.value = 0.08;
+    o.connect(g); g.connect(audio.destination);
+    o.start(); o.stop(audio.currentTime + dur);
+  } catch (e) {}
+}
+
+function successFx() {
+  beep(660, 0.1);
+  setTimeout(() => beep(990, 0.15), 110);
+  card.classList.remove("flash");
+  void card.offsetWidth;
+  card.classList.add("flash");
+}
+
+
+/* =========================================================
+   STEP CONTROL
+   ========================================================= */
+function restart() {
+  idx = 0; baseArea = 0; baseAcc = []; hold = 0; advancing = false; paperColor = null;
+  flowerColor = null; flowerSaved = false;
+  paperPos = null; whitePaperV = 160; whitePaperS = 55;
+  state.shape = null; state.lost = 0; disp = null;
+  clearGuide();
+  confetti.length = 0;
+  $("finish").style.display = "none";
+  buildDots();
+  updateUI();
+}
+
+function goNext(auto) {
+  if (advancing) return;
+  hold = 0;
+  successFx();
+
+  const proceed = () => {
+    advancing = false;
+    if (!running) return;
+    idx++;
+    if (idx >= STEPS.length) { finish(); return; }
+    disp = null;
+    if (STEPS[idx].newPaper) {
+      if (!flowerSaved) { flowerColor = paperColor; flowerSaved = true; }   // remember the flower colour
+      paperColor = null; baseArea = 0; baseAcc = []; paperPos = null; state.shape = null; state.lost = 0;
+    }
+    updateUI();
+  };
+
+  if (auto) {
+    advancing = true;
+    barFill.style.width = "100%";
+    setStatus("\u2713 Great fold!", "good");
+    setTimeout(proceed, ADVANCE_MS);
+  } else {
+    proceed();
+  }
+}
+
+function goBack() {
+  if (idx === 0 || advancing) return;
+  idx--;
+  hold = 0;
+  disp = null;
+  if (isPlace(STEPS[idx])) { baseArea = 0; baseAcc = []; paperPos = null; if (STEPS[idx].newPaper) paperColor = null; }
+  updateUI();
+}
+
+function finish() {
+  $("finishEmoji").innerHTML = modelKey === "tulip" ? "&#127799;" : "&#129418;";
+  $("finishTitle").textContent = MODELS[modelKey].finishTitle;
+  speak(SPEECH.done);
+  beep(523, .15); setTimeout(() => beep(659, .15), 150); setTimeout(() => beep(784, .3), 300);
+  spawnConfetti();
+  setTimeout(() => { $("finish").style.display = "flex"; }, 1600);
+  [...$("dots").children].forEach(d => d.className = "done");
+  clearGuide();
+}
+
+$("nextBtn").addEventListener("click", () => goNext(false));
+$("backBtn").addEventListener("click", goBack);
+$("againBtn").addEventListener("click", () => {
+  $("finish").style.display = "none";
+  backToMenu();
+});
+
+$("debugBtn").addEventListener("click", () => {
+  const d = $("debug");
+  d.style.display = d.style.display === "block" ? "none" : "block";
+});
+$("whiteBtn").addEventListener("click", () => {
+  paperColor = null;
+  setStatus("White paper mode", "");
+});
+
+
+/* =========================================================
+   SAMPLE / LEARN PAPER COLOUR (auto or tap)
+   ========================================================= */
+function samplePaperColorAt(wx, wy) {
+  try {
+    const r = 7;
+    const x0 = Math.max(0, Math.round(wx - r)), y0 = Math.max(0, Math.round(wy - r));
+    const data = wctx.getImageData(x0, y0, r * 2, r * 2).data;
+    let R = 0, G = 0, B = 0, n = 0;
+    for (let i = 0; i < data.length; i += 4) { R += data[i]; G += data[i + 1]; B += data[i + 2]; n++; }
+    if (n === 0) return;
+    R /= n; G /= n; B /= n;
+
+    const hsv = rgb2hsv(R, G, B);
+    if (hsv.s >= 35) {
+      paperColor = hsv;
+      setStatus("Paper colour locked", "good");
+    } else {
+      paperColor = null;
+      whitePaperV = Math.max(150, Math.round(hsv.v - 35));
+      whitePaperS = Math.min(55, Math.round(hsv.s + 20));
+      setStatus("White paper mode (calibrated)", "good");
+    }
+  } catch (e) {}
+}
+
+document.addEventListener("click", e => {
+  if (!running || e.target.closest("button") || e.target.closest("#card")) return;
+  const vw = video.videoWidth, vh = video.videoHeight;
+  if (!vw) return;
+
+  const c = Math.max(W / vw, H / vh);
+  const vx = (e.clientX + (vw * c - W) / 2) / c;
+  const vy = (e.clientY + (vh * c - H) / 2) / c;
+  const wx = Math.round(vx * lastScale), wy = Math.round(vy * lastScale);
+
+  samplePaperColorAt(wx, wy);
+});
+
+function rgb2hsv(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+  let h = 0;
+  if (d > 0) {
+    if (mx === r) h = ((g - b) / d) % 6;
+    else if (mx === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h *= 60; if (h < 0) h += 360;
+  }
+  return { h: h / 2, s: mx === 0 ? 0 : (d / mx) * 255, v: mx * 255 };   // OpenCV scale
+}
+
+
+/* =========================================================
+   DETECTION LOOP
+   ========================================================= */
+function tick(ts) {
+  requestAnimationFrame(tick);
+  if (!running || !cvReady || video.readyState < 2) return;
+  if (ts - lastT < DETECT_MS) return;
+  lastT = ts;
+
+  try { analyze(); } catch (e) { console.error(e); }
+}
+
+/* mask of one paper colour (null = white paper) */
+function maskFor(hsv, color, mask, T) {
+  const rows = hsv.rows, cols = hsv.cols, type = hsv.type();
+  const range = (lo, hi, out) => {
+    const L = T(new cv.Mat(rows, cols, type, lo));
+    const U = T(new cv.Mat(rows, cols, type, hi));
+    cv.inRange(hsv, L, U, out);
+  };
+
+  if (!color) {                                      // white paper: strict brightness and low saturation
+    const vMin = whitePaperV || 160;
+    const sMax = whitePaperS || 55;
+    range([0, 0, vMin, 0], [180, sMax, 255, 255], mask);
+    return;
+  }
+
+  const p = color;                                   // coloured paper
+  const sLo = Math.max(30, p.s - 55), sHi = Math.min(255, p.s + 55);
+  const vLo = Math.max(40, p.v - 70), vHi = Math.min(255, p.v + 70);
+  const hLo = p.h - 11, hHi = p.h + 11;
+
+  if (hLo >= 0 && hHi <= 180) {
+    range([hLo, sLo, vLo, 0], [hHi, sHi, vHi, 255], mask);
+  } else {                                           // hue wraps around (reds)
+    const a = T(new cv.Mat()), b = T(new cv.Mat());
+    range([Math.max(0, hLo), sLo, vLo, 0], [Math.min(180, hHi), sHi, vHi, 255], a);
+    if (hLo < 0) range([180 + hLo, sLo, vLo, 0], [180, sHi, vHi, 255], b);
+    else         range([0, sLo, vLo, 0], [hHi - 180, sHi, vHi, 255], b);
+    cv.bitwise_or(a, b, mask);
+  }
+}
+
+/* normal steps: the current paper colour.  "both" steps: flower colour + stem colour together */
+function buildMask(hsv, mask, T) {
+  const st = STEPS[idx];
+  if (st && st.both) {
+    const a = T(new cv.Mat()), b = T(new cv.Mat());
+    maskFor(hsv, flowerColor, a, T);
+    maskFor(hsv, paperColor, b, T);
+    cv.bitwise_or(a, b, mask);
+  } else {
+    maskFor(hsv, paperColor, mask, T);
+  }
+}
+
+function toScreen(x, y) {
+  const vw = video.videoWidth, vh = video.videoHeight;
+  const c = Math.max(W / vw, H / vh);
+  return {
+    x: (x / lastScale) * c - (vw * c - W) / 2,
+    y: (y / lastScale) * c - (vh * c - H) / 2
+  };
+}
+
+function analyze() {
+  const vw = video.videoWidth, vh = video.videoHeight;
+  if (!vw) return;
+
+  lastScale = Math.min(1, 640 / vw);
+  const w = Math.round(vw * lastScale), h = Math.round(vh * lastScale);
+  if (work.width !== w || work.height !== h) { work.width = w; work.height = h; }
+  wctx.drawImage(video, 0, 0, w, h);
+
+  const trash = [];
+  const T = m => { trash.push(m); return m; };
+  let best = null;
+  let shape = null;
+  const curStep = STEPS[idx];
+
+  try {
+    const src = T(cv.imread(work));
+    const rgb = T(new cv.Mat());  cv.cvtColor(src, rgb, cv.COLOR_RGBA2RGB);
+    const hsv = T(new cv.Mat());  cv.cvtColor(rgb, hsv, cv.COLOR_RGB2HSV);
+
+    const mask = T(new cv.Mat());
+    buildMask(hsv, mask, T);
+
+    /* flower + stem steps: close bigger gaps so the two pieces count as ONE shape */
+    const kernel = T(cv.Mat.ones(5, 5, cv.CV_8U));
+    const closeK = (curStep && curStep.both) ? T(cv.Mat.ones(21, 21, cv.CV_8U)) : kernel;
+    const m2 = T(new cv.Mat()), m3 = T(new cv.Mat());
+    cv.morphologyEx(mask, m2, cv.MORPH_OPEN, kernel);
+    cv.morphologyEx(m2, m3, cv.MORPH_CLOSE, closeK);
+
+    const contours = T(new cv.MatVector());
+    const hier = T(new cv.Mat());
+    cv.findContours(m3, contours, hier, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+    /* ---- LOCK TO THE PAPER, NOT THE SURROUNDINGS:
+            1. Enforce strict maxArea when baseArea is known (folded paper cannot be larger than flat sheet).
+            2. Hard-reject contours touching the frame edge once paper is placed.
+            3. Discard jagged/sprawling non-paper blobs with low solidity.
+            4. Spatial lock: prioritize candidates near the paper's last known location.
+            5. Target area match: favor contours matching the expected origami step size instead of biggest blob. ---- */
+    const minArea = baseArea ? baseArea * 0.12 : w * h * 0.04;
+    const maxArea = baseArea ? baseArea * 1.30 : w * h * 0.85;
+    const targetArea = baseArea ? (baseArea * (curStep && curStep.area ? curStep.area : 0.40)) : (w * h * 0.25);
+
+    let bestArea = 0, bestScore = 0;
+    for (let i = 0; i < contours.size(); i++) {
+      const c = contours.get(i);
+      const a = cv.contourArea(c);
+      if (a < minArea || a > maxArea) { c.delete(); continue; }
+
+      const r = cv.boundingRect(c);
+      const touches = r.x <= 2 || r.y <= 2 || r.x + r.width >= w - 2 || r.y + r.height >= h - 2;
+
+      // When paper is in play, background tables/sheets bleed to the edge: reject them
+      if (baseArea && touches && !isPlace(curStep)) { c.delete(); continue; }
+
+      const cx = r.x + r.width / 2, cy = r.y + r.height / 2;
+      const boxArea = r.width * r.height;
+      const rectFill = a / Math.max(1, boxArea);
+      if (rectFill < 0.25) { c.delete(); continue; } // sprawling or hollow clutter
+
+      // Spatial lock: strongly favor candidates near where the paper is located
+      let distFactor = 1;
+      if (paperPos && baseArea) {
+        const dPaper = Math.hypot(cx - paperPos.x, cy - paperPos.y);
+        distFactor = 1 / (1 + (dPaper / (w * 0.22)) ** 2);
+      } else {
+        const dCenter = Math.hypot(cx - w / 2, cy - h / 2) / Math.hypot(w / 2, h / 2);
+        distFactor = 1 - 0.5 * Math.min(1, dCenter);
+      }
+
+      // Step-size fit: prefer contours close to the expected folded area
+      const areaFit = 1 / (1 + (Math.abs(a - targetArea) / targetArea) * 1.5);
+      const borderPen = touches ? 0.05 : 1.0;
+
+      const sc = areaFit * distFactor * borderPen * (rectFill > 0.45 ? 1.2 : 0.85);
+      if (sc > bestScore) { if (best) best.delete(); best = c; bestScore = sc; bestArea = a; }
+      else c.delete();
+    }
+
+    if (best && bestArea >= minArea) {
+      const hull = T(new cv.Mat());
+      cv.convexHull(best, hull, false, true);
+      const hullArea = cv.contourArea(hull);
+      const per = cv.arcLength(hull, true);
+
+      let approx = T(new cv.Mat());
+      cv.approxPolyDP(hull, approx, 0.03 * per, true);
+      if (isPlace(curStep) && approx.rows !== 4) {
+        for (const eps of [0.045, 0.06]) {
+          const a2 = T(new cv.Mat());
+          cv.approxPolyDP(hull, a2, eps * per, true);
+          if (a2.rows === 4) { approx = a2; break; }
+        }
+      }
+
+      const pts = [];
+      for (let i = 0; i < approx.rows; i++) {
+        pts.push(toScreen(approx.data32S[i * 2], approx.data32S[i * 2 + 1]));
+      }
+
+      /* Alternative corner sets (3, 4, 5... corners) */
+      const alt = {};
+      for (const eps of [0.02, 0.03, 0.04, 0.05, 0.06, 0.08, 0.10, 0.13]) {
+        const a3 = T(new cv.Mat());
+        cv.approxPolyDP(hull, a3, eps * per, true);
+        const n = a3.rows;
+        if (n >= 3 && n <= 8 && !alt[n]) {
+          const p = [];
+          for (let i = 0; i < n; i++) p.push(toScreen(a3.data32S[i * 2], a3.data32S[i * 2 + 1]));
+          alt[n] = p;
+        }
+      }
+
+      /* Picture steps: full outline + centre + tilt of the shape, so the picture can be fitted on it */
+      let extra = {};
+      if (curStep && curStep.overlay) {
+        const hp = [];
+        for (let i = 0; i < hull.rows; i++) hp.push(toScreen(hull.data32S[i * 2], hull.data32S[i * 2 + 1]));
+        let theta = null, cen = null;
+        try {
+          const mo = cv.moments(hull, false);
+          if (mo && mo.m00 > 0) {
+            const mx = mo.m10 / mo.m00, my = mo.m01 / mo.m00;
+            const mu20 = mo.m20 / mo.m00 - mx * mx;
+            const mu02 = mo.m02 / mo.m00 - my * my;
+            const mu11 = mo.m11 / mo.m00 - mx * my;
+            theta = 0.5 * Math.atan2(2 * mu11, mu20 - mu02);
+            cen = toScreen(mx, my);
+          }
+        } catch (err) {}
+        if (!cen) {
+          let sx = 0, sy = 0;
+          hp.forEach(p => { sx += p.x; sy += p.y; });
+          cen = { x: sx / hp.length, y: sy / hp.length };
+        }
+        if (theta === null || !isFinite(theta)) {
+          let sxx = 0, syy = 0, sxy = 0;
+          hp.forEach(p => { const x = p.x - cen.x, y = p.y - cen.y; sxx += x * x; syy += y * y; sxy += x * y; });
+          theta = 0.5 * Math.atan2(2 * sxy, sxx - syy);
+        }
+        extra = { hull: hp, cen, theta };
+      }
+
+      const rr = cv.minAreaRect(hull);
+      const rw = rr.size.width, rh = rr.size.height;
+      const bb = cv.boundingRect(hull);
+      const cenWork = { x: bb.x + bb.width / 2, y: bb.y + bb.height / 2 };
+
+      shape = Object.assign({
+        pts, alt, cenWork,
+        area: bestArea,
+        frac: bestArea / (w * h),
+        edge: bb.x <= 2 || bb.y <= 2 || bb.x + bb.width >= w - 2 || bb.y + bb.height >= h - 2,
+        solidity: bestArea / Math.max(1, hullArea),
+        verts: approx.rows,
+        aspect: Math.max(rw, rh) / Math.max(1, Math.min(rw, rh)),
+        rect: hullArea / Math.max(1, rw * rh)
+      }, extra);
+    }
+  } finally {
+    if (best) best.delete();
+    trash.forEach(m => { try { m.delete(); } catch (e) {} });
+  }
+
+  if (shape) {
+    state.shape = shape;
+    state.lost = 0;
+    paperPos = shape.cenWork;
+  } else {
+    state.lost++;
+    if (state.lost > LOST_TICKS_MAX) {
+      state.shape = null;
+      paperPos = null;
+    }
+  }
+
+  if (running && !advancing) updateLogic(shape);
+}
+
+
+/* =========================================================
+   FOLD GUIDE  (always drawn on the paper the camera sees NOW)
+   ========================================================= */
+function updateGuide(step, sh) {
+  const prefs = GUIDE_N[step.key];
+  if (!prefs) { clearGuide(); return; }
+
+  let pts = null;
+  const before = BEFORE[step.key];
+  const minSol = (step.sol && step.sol[0]) ? Math.min(0.85, step.sol[0]) : 0.84;
+  if (sh && sh.alt && sh.solidity >= minSol && before && before(sh)) {
+    for (const n of prefs) if (sh.alt[n]) { pts = sh.alt[n]; break; }
+  }
+
+  if (pts) {
+    guide.pts = pts.map(p => ({ x: p.x, y: p.y }));
+    guide.miss = 0;
+  } else {
+    guide.miss++;                                  // hand in the way / paper not in the "before" shape
+    if (guide.miss > GUIDE_GRACE) clearGuide();    // only keep the old line for a moment
+  }
+}
+
+
+/* =========================================================
+   MANUAL STEPS THAT MOVE ON BY THEMSELVES
+   hand covers / paper turned  ->  paper settles again  ->  next step
+   ========================================================= */
+function watchManual(step, sh) {
+  const w = watch;
+  const minSol = (step.sol && step.sol[0]) || (modelKey === "fox" && idx >= 3 ? 0.68 : 0.88);
+  const good = sh && sh.solidity >= minSol && !sh.edge;
+
+  if (!good) {                                      // hand in the way or paper gone
+    if (w.start) w.disturbed = true;
+    w.stable = 0; w.last = 0;
+    return false;
+  }
+
+  const jump = w.last && Math.abs(sh.area - w.last) / w.last > 0.12;
+  w.last = sh.area;
+  if (jump) { w.stable = 0; if (w.start) w.disturbed = true; return false; }
+
+  w.stable++;
+  if (!w.start) {                                   // remember how the paper looked at the start
+    if (w.stable >= 3) w.start = sh.area;
+    return false;
+  }
+  if (!w.disturbed || w.stable < SETTLE_TICKS) return false;
+
+  if (step.auto === "flip") return true;            // turned over: shape stays the same
+  const change = Math.abs(sh.area - w.start) / w.start;
+  return change >= (step.autoFold || 0.07);         // fold: shape got smaller / different
+}
+
+
+/* =========================================================
+   MATCH SCORE
+   ========================================================= */
+function evaluate(step, sh) {
+  if (!sh || !baseArea || step.area === undefined) return { score: 0, ratio: 0 };
+  const ratio = sh.area / baseArea;
+
+  const sol = step.sol || [0.9, 1.01];
+  if (sh.solidity < sol[0]) return { score: 0, ratio, hand: true };   // hand in the way / messy
+  if (sh.solidity > sol[1]) return { score: 0, ratio };
+
+  /* shape-only check: works even if the phone is closer or further than before */
+  if (step.scaleFree && step.scaleFree(sh)) return { score: 0.9, ratio };
+
+  const areaScore = Math.max(0, 1 - Math.abs(ratio - step.area) / step.tol);
+
+  let vertScore = 0;
+  if (step.verts.includes(sh.verts)) vertScore = 1;
+  else if (step.verts.some(v => Math.abs(v - sh.verts) === 1)) vertScore = 0.5;
+
+  const score = (areaScore > 0 && vertScore > 0) ? areaScore * 0.6 + vertScore * 0.4 : 0;
+  return { score, ratio };
+}
+
+
+/* =========================================================
+   STEP LOGIC
+   ========================================================= */
+function updateLogic(sh) {
+  const step = STEPS[idx];
+  if (!step) return;
+  let dbg = "model: " + modelKey + "\nstep: " + step.key;
+
+  /* ---------- find a flat square sheet ---------- */
+  if (isPlace(step)) {
+    const shapeOK = sh && sh.verts === 4 && sh.solidity > 0.93 && sh.rect > 0.82 && sh.aspect < 1.3;
+    const tooSmall = sh && sh.frac < MIN_FRAC;
+    const cutOff = sh && sh.edge;
+    const ok = shapeOK && !tooSmall && !cutOff;
+
+    if (ok) {
+      baseAcc.push(sh.area);
+      if (baseAcc.length > REQUIRED_HOLD) baseAcc.shift();
+      hold = baseAcc.length;
+      setStatus("Paper found - hold still...", "good");
+
+      if (baseAcc.length >= REQUIRED_HOLD) {
+        const sorted = [...baseAcc].sort((a, b) => a - b);
+        baseArea = sorted[Math.floor(sorted.length / 2)];
+        if (sh && sh.cenWork) {
+          samplePaperColorAt(sh.cenWork.x, sh.cenWork.y);
+        }
+        goNext(true);
+      }
+    } else {
+      baseAcc = []; hold = 0;
+      if (shapeOK && cutOff)        setStatus("Whole paper must fit - raise the phone a little", "warn");
+      else if (shapeOK && tooSmall) setStatus("Too far - move the phone closer", "warn");
+      else if (sh && sh.aspect >= 1.3 && sh.verts === 4) setStatus("That looks rectangular - use a square sheet", "warn");
+      else if (sh && sh.solidity <= 0.93)                setStatus("Keep your hands off the paper", "warn");
+      else                                               setStatus(step.color ? "Show the " + step.color.name + " paper, then tap it once" : "Looking for paper... (coloured paper? tap it once)", "");
+    }
+
+    state.score = hold / REQUIRED_HOLD;
+    barFill.style.width = Math.round(state.score * 100) + "%";
+    dbg += "\nverts: " + (sh ? sh.verts : "-") + "\naspect: " + (sh ? sh.aspect.toFixed(2) : "-") +
+           "\nfills screen: " + (sh ? Math.round(sh.frac * 100) + "%  (ideal 30-65%)" : "-") +
+           "\ntouching edge: " + (sh ? sh.edge : "-");
+    $("debug").textContent = dbg;
+    return;
+  }
+
+  /* ---------- manual steps (turn over / draw / simple folds / picture steps) ---------- */
+  if (step.manual) {
+    updateGuide(step, sh);
+
+    if (step.auto && watchManual(step, sh)) { goNext(true); return; }
+
+    const settling = step.auto && watch.disturbed && watch.stable > 0;
+    barFill.style.width = settling ? Math.round(Math.min(1, watch.stable / SETTLE_TICKS) * 100) + "%" : "0%";
+
+    let msg = settling ? "Hold still..." : (step.hint || "Tap the button when done");
+    if (step.overlay && !sh) msg = "Keep the paper in view";
+    setStatus(msg, settling ? "good" : (step.overlay && !sh ? "warn" : ""));
+
+    dbg += "\nauto: " + (step.auto || "-") + "  start " + Math.round(watch.start) +
+           "\ndisturbed: " + watch.disturbed + "  stable " + watch.stable +
+           (step.overlay ? "\npicture: " + step.overlay + (getImg(step.overlay) ? " (loaded)" : " (NOT loaded)") : "");
+    $("debug").textContent = dbg;
+    return;
+  }
+
+  /* ---------- detected fold steps ---------- */
+  const res = evaluate(step, sh);
+  state.score = res.score;
+  state.ratio = res.ratio;
+
+  updateGuide(step, sh);
+
+  if (!sh) {
+    hold = Math.max(0, hold - 2);
+    setStatus("Keep the paper in view", "warn");
+  } else if (res.hand) {
+    hold = Math.max(0, hold - 2);
+    setStatus("Smooth the paper flat / hands away", "warn");
+  } else if (res.score >= PASS_SCORE) {
+    hold++;
+    setStatus("Looks right! Hold still...", "good");
+  } else {
+    hold = Math.max(0, hold - 2);
+    let msg = guide.pts ? "Fold along the red dotted line" : "Keep folding... (" + Math.round(res.score * 100) + "%)";
+    if (step.key === "corners" && res.ratio > 0.36 && res.ratio < 0.44) msg = "One side done - now fold the other corner";
+    setStatus(msg, "");
+  }
+
+  barFill.style.width = Math.round(Math.min(1, hold / REQUIRED_HOLD) * 100) + "%";
+
+  if (hold >= REQUIRED_HOLD) { goNext(true); return; }
+
+  dbg += "\nratio: " + (res.ratio || 0).toFixed(2) + "  want " + step.area +
+         "\nverts: " + (sh ? sh.verts : "-") + "  want " + step.verts.join("/") +
+         "\nsolidity: " + (sh ? sh.solidity.toFixed(2) : "-") +
+         "  want " + (step.sol || [0.9, 1]).join("-") +
+         "\nscore: " + res.score.toFixed(2) + "  hold " + hold +
+         "\nguide: " + (guide.pts ? "on paper (miss " + guide.miss + ")" : "none");
+  $("debug").textContent = dbg;
+}
+
+
+/* =========================================================
+   DRAWING
+   ========================================================= */
+const lerp = (a, b, t) => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+
+/* Smooth the corner points between detections so lines glide instead of jumping. */
+function smoothPts(target, prev) {
+  if (!prev || prev.length !== target.length) {
+    return target.map(p => ({ x: p.x, y: p.y }));
+  }
+  const n = target.length;
+  let bo = 0, bd = Infinity;
+  for (let o = 0; o < n; o++) {
+    let d = 0;
+    for (let i = 0; i < n; i++) d += dist(prev[i], target[(i + o) % n]);
+    if (d < bd) { bd = d; bo = o; }
+  }
+  if (bd / n > 150) return target.map(p => ({ x: p.x, y: p.y }));
+  for (let i = 0; i < n; i++) {
+    const t = target[(i + bo) % n];
+    prev[i].x += (t.x - prev[i].x) * 0.35;
+    prev[i].y += (t.y - prev[i].y) * 0.35;
+  }
+  return prev;
+}
+
+function outline(pts, color) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+  ctx.closePath();
+  ctx.lineWidth = 4; ctx.lineJoin = "round"; ctx.strokeStyle = color;
+  ctx.fillStyle = color === "#00ff88" ? "rgba(0,255,136,.10)" : "rgba(255,255,255,.04)";
+  ctx.fill(); ctx.stroke();
+  pts.forEach(p => {
+    ctx.beginPath(); ctx.arc(p.x, p.y, 7, 0, Math.PI * 2);
+    ctx.fillStyle = "#fff"; ctx.fill();
+    ctx.beginPath(); ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+    ctx.fillStyle = color; ctx.fill();
+  });
+  ctx.restore();
+}
+
+function pill(p, text) {
+  ctx.save();
+  ctx.font = "800 13px -apple-system, Roboto, sans-serif";
+  const w = ctx.measureText(text).width + 18;
+  ctx.fillStyle = "#ff3b30";
+  ctx.beginPath();
+  const x = p.x - w / 2, y = p.y - 12, r = 12;
+  ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.arc(x + w - r, y + r, r, -Math.PI / 2, Math.PI / 2);
+  ctx.lineTo(x + r, y + 24); ctx.arc(x + r, y + r, r, Math.PI / 2, Math.PI * 1.5); ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "#fff"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillText(text, p.x, p.y + 1);
+  ctx.restore();
+}
+
+function dashed(a, b, t, label) {
+  ctx.save();
+  ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
+  ctx.lineCap = "round";
+  ctx.setLineDash([]); ctx.lineWidth = 9; ctx.strokeStyle = "rgba(0,0,0,.45)"; ctx.stroke();      // dark edge so it shows on any paper
+  ctx.setLineDash([14, 10]); ctx.lineDashOffset = -t / 35;
+  ctx.lineWidth = 5; ctx.strokeStyle = "#ff3b30"; ctx.stroke();
+  ctx.restore();
+  if (label) pill(lerp(a, b, 0.5), label);
+}
+
+function arrow(a, b, t) {
+  const k = ((t / 900) % 1);
+  const tip = lerp(a, b, 0.55 + 0.45 * k);
+  const ang = Math.atan2(b.y - a.y, b.x - a.x);
+  const s = 20;
+  ctx.save();
+  ctx.globalAlpha = 1 - 0.5 * k;
+  ctx.beginPath();
+  ctx.moveTo(a.x, a.y); ctx.lineTo(tip.x, tip.y);
+  ctx.lineWidth = 5; ctx.strokeStyle = "#ffd60a"; ctx.lineCap = "round"; ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(tip.x, tip.y);
+  ctx.lineTo(tip.x - s * Math.cos(ang - 0.5), tip.y - s * Math.sin(ang - 0.5));
+  ctx.lineTo(tip.x - s * Math.cos(ang + 0.5), tip.y - s * Math.sin(ang + 0.5));
+  ctx.closePath(); ctx.fillStyle = "#ffd60a"; ctx.fill();
+  ctx.restore();
+}
+
+function tri(a, b, c) {
+  ctx.save();
+  ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.lineTo(c.x, c.y); ctx.closePath();
+  ctx.fillStyle = "rgba(255,59,48,.28)"; ctx.fill();
+  ctx.restore();
+}
+
+function drawGuide(key, pts, t) {
+
+  /* ----- FOLD IN HALF: bottom corner up to top corner.
+         The crease runs from the LEFT corner to the RIGHT corner. ----- */
+  if (key === "half" && pts.length === 4) {
+    let ti = 0;
+    pts.forEach((p, i) => { if (p.y < pts[ti].y) ti = i; });
+    const top = pts[ti], R = pts[(ti + 1) % 4], bot = pts[(ti + 2) % 4], L = pts[(ti + 3) % 4];
+    tri(L, R, bot);                       // the half that will move
+    dashed(L, R, t, "FOLD HERE");
+    arrow(lerp(bot, top, 0.12), lerp(bot, top, 0.85), t);
+  }
+
+  /* ----- FOX: fold the tip down ----- */
+  if (key === "apex" && pts.length === 3) {
+    let li = 0, ld = 0;
+    for (let i = 0; i < 3; i++) {
+      const d = dist(pts[i], pts[(i + 1) % 3]);
+      if (d > ld) { ld = d; li = i; }
+    }
+    const A = pts[li], B = pts[(li + 1) % 3], P = pts[(li + 2) % 3];     // P = tip
+    const a = lerp(P, A, 0.5), b = lerp(P, B, 0.5), M = lerp(A, B, 0.5);
+    tri(P, a, b);
+    dashed(a, b, t, "FOLD HERE");
+    arrow(lerp(P, M, 0.05), lerp(P, M, 0.8), t);
+  }
+
+  /* ----- FOX: fold both bottom corners up and in ----- */
+  if (key === "corners" && pts.length === 4) {
+    let li = 0, ld = 0;
+    for (let i = 0; i < 4; i++) {
+      const d = dist(pts[i], pts[(i + 1) % 4]);
+      if (d > ld) { ld = d; li = i; }
+    }
+    const B1 = pts[li], B2 = pts[(li + 1) % 4];
+    const R = pts[(li + 2) % 4], L = pts[(li + 3) % 4];
+    const K = lerp(B1, B2, 0.5);
+    const L1 = lerp(B1, L, 0.65), L2 = lerp(B2, R, 0.65);
+
+    tri(B1, K, L1); tri(B2, K, L2);
+    dashed(K, L1, t, "FOLD 1");
+    dashed(K, L2, t, "FOLD 2");
+    arrow(lerp(B1, lerp(K, L1, 0.5), 0.1), lerp(B1, lerp(K, L1, 0.5), 1.15), t);
+    arrow(lerp(B2, lerp(K, L2, 0.5), 0.1), lerp(B2, lerp(K, L2, 0.5), 1.15), t);
+  }
+
+  /* ----- TULIP flower: fold the right corner over to the left ----- */
+  if (key === "tf1" && pts.length === 3) {
+    let ti = 0;
+    pts.forEach((p, i) => { if (p.y < pts[ti].y) ti = i; });
+    const P = pts[ti], o1 = pts[(ti + 1) % 3], o2 = pts[(ti + 2) % 3];
+    const Lb = o1.x < o2.x ? o1 : o2, Rb = o1.x < o2.x ? o2 : o1;
+    const M = lerp(Lb, Rb, 0.62);
+    tri(P, M, Rb);
+    dashed(P, M, t, "FOLD HERE");
+    arrow(lerp(Rb, P, 0.3), lerp(Lb, P, 0.5), t);
+  }
+
+  /* ----- TULIP flower: fold the bottom tip backward ----- */
+  if (key === "tf3" && pts.length >= 3) {
+    let B = pts[0], T0 = pts[0], x0 = Infinity, x1 = -Infinity;
+    pts.forEach(p => {
+      if (p.y > B.y) B = p;
+      if (p.y < T0.y) T0 = p;
+      x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x);
+    });
+    const y = B.y - (B.y - T0.y) * 0.28, hw = (x1 - x0) * 0.2;
+    const a = { x: B.x - hw, y }, b = { x: B.x + hw, y };
+    const mid = lerp(a, b, 0.5);
+    tri(a, b, B);
+    dashed(a, b, t, "FOLD BEHIND");
+    arrow(lerp(B, mid, 0.1), lerp(B, mid, 1.3), t);
+  }
+
+  /* ----- TULIP stem: fold both side corners in to the centre line ----- */
+  if (key === "sf1" && pts.length === 4) {
+    let ti = 0;
+    pts.forEach((p, i) => { if (p.y < pts[ti].y) ti = i; });
+    const T = pts[ti], R = pts[(ti + 1) % 4], B = pts[(ti + 2) % 4], L = pts[(ti + 3) % 4];
+    const QL = lerp(L, B, 0.65), QR = lerp(R, B, 0.65), C = lerp(T, B, 0.5);
+    tri(T, L, QL); tri(T, R, QR);
+    dashed(T, QL, t, "FOLD 1");
+    dashed(T, QR, t, "FOLD 2");
+    arrow(lerp(L, C, 0.1), lerp(L, C, 0.7), t);
+    arrow(lerp(R, C, 0.1), lerp(R, C, 0.7), t);
+  }
+}
+
+
+/* ---------- fox picture: sits on the tracked paper and turns with it (fox step 6) ---------- */
+let foxAng = null;
+
+function drawFox(pts) {
+  const img = $("refImg");
+  if (!img || !img.complete) return;
+
+  let cx = 0, cy = 0;
+  pts.forEach(p => { cx += p.x; cy += p.y; });
+  cx /= pts.length; cy /= pts.length;
+
+  // chin corner: lowest one first, then stay with the corner closest to the last angle
+  let chin = pts[0];
+  if (foxAng === null) {
+    pts.forEach(p => { if (p.y > chin.y) chin = p; });
+  } else {
+    let best = Infinity;
+    pts.forEach(p => {
+      const a = Math.atan2(p.y - cy, p.x - cx) - Math.PI / 2;
+      const d = Math.abs(Math.atan2(Math.sin(a - foxAng), Math.cos(a - foxAng)));
+      if (d < best) { best = d; chin = p; }
+    });
+  }
+
+  const target = Math.atan2(chin.y - cy, chin.x - cx) - Math.PI / 2;
+  if (foxAng === null) foxAng = target;
+  else foxAng += Math.atan2(Math.sin(target - foxAng), Math.cos(target - foxAng)) * 0.25;
+
+  // measure the paper along the fox's own axes so the picture fits at any rotation
+  const c = Math.cos(foxAng), s = Math.sin(foxAng);
+  let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+  pts.forEach(p => {
+    const x = p.x - cx, y = p.y - cy;
+    const u = x * c + y * s, v = -x * s + y * c;
+    u0 = Math.min(u0, u); u1 = Math.max(u1, u);
+    v0 = Math.min(v0, v); v1 = Math.max(v1, v);
+  });
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(foxAng);
+  ctx.globalAlpha = 0.9;
+  ctx.drawImage(img, u0, v0, u1 - u0, v1 - v0);
+  ctx.restore();
+}
+
+
+/* ---------- tulip pictures: flower (step 6) and whole tulip (last step) ----------
+   The picture is fitted onto the tracked shape: turned to match the paper and
+   stretched to the paper's size, so it sits exactly on top of it. */
+let ovAng = null, ovBox = null;
+
+function drawOverlay(step, sh) {
+  const im = getImg(step.overlay);
+  if (!im || !sh || !sh.hull || sh.hull.length < 3 || !sh.cen) return;
+  const cen = sh.cen;
+
+  // the picture's up/down line is whichever shape axis is closest to vertical
+  const mj = { x: Math.cos(sh.theta), y: Math.sin(sh.theta) };
+  const mn = { x: -mj.y, y: mj.x };
+  const a = Math.abs(mj.y) >= Math.abs(mn.y) ? mj : mn;
+
+  // how wide is the shape at each end of that line?
+  let smin = Infinity, smax = -Infinity;
+  const proj = sh.hull.map(p => {
+    const x = p.x - cen.x, y = p.y - cen.y;
+    const s = x * a.x + y * a.y;
+    smin = Math.min(smin, s); smax = Math.max(smax, s);
+    return { s, t: -x * a.y + y * a.x };
+  });
+  const band = (smax - smin) * 0.3;
+  let tt0 = Infinity, tt1 = -Infinity, bt0 = Infinity, bt1 = -Infinity;
+  proj.forEach(q => {
+    if (q.s >= smax - band) { tt0 = Math.min(tt0, q.t); tt1 = Math.max(tt1, q.t); }
+    if (q.s <= smin + band) { bt0 = Math.min(bt0, q.t); bt1 = Math.max(bt1, q.t); }
+  });
+  const wTop = tt1 - tt0, wBot = bt1 - bt0;
+
+  const phiFor = sign => Math.atan2(a.x * sign, -(a.y * sign));   // turn so picture-up points along "up"
+  let sign;
+  if (step.overlayMode === "wide") {
+    // flower: the wide end is the top
+    sign = wTop >= wBot ? 1 : -1;
+    const close = Math.abs(wTop - wBot) / Math.max(wTop, wBot, 1) < 0.12;
+    if (close && ovAng !== null) {                                // too close to call: keep what we had
+      const d1 = Math.abs(Math.atan2(Math.sin(phiFor(1) - ovAng), Math.cos(phiFor(1) - ovAng)));
+      const d2 = Math.abs(Math.atan2(Math.sin(phiFor(-1) - ovAng), Math.cos(phiFor(-1) - ovAng)));
+      sign = d1 <= d2 ? 1 : -1;
+    }
+  } else {
+    // whole tulip: keep it upright on the screen
+    sign = a.y <= 0 ? 1 : -1;
+  }
+
+  const target = phiFor(sign);
+  if (ovAng === null) ovAng = target;
+  else ovAng += Math.atan2(Math.sin(target - ovAng), Math.cos(target - ovAng)) * 0.25;
+
+  // size of the paper along the picture's own axes
+  const c = Math.cos(ovAng), s = Math.sin(ovAng);
+  let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+  sh.hull.forEach(p => {
+    const x = p.x - cen.x, y = p.y - cen.y;
+    const u = x * c + y * s, v = -x * s + y * c;
+    u0 = Math.min(u0, u); u1 = Math.max(u1, u);
+    v0 = Math.min(v0, v); v1 = Math.max(v1, v);
+  });
+
+  const tgt = { cx: cen.x, cy: cen.y, u0, u1, v0, v1 };
+  if (!ovBox) ovBox = tgt;
+  else for (const k in tgt) ovBox[k] += (tgt[k] - ovBox[k]) * 0.3;
+
+  ctx.save();
+  ctx.translate(ovBox.cx, ovBox.cy);
+  ctx.rotate(ovAng);
+  ctx.globalAlpha = 0.92;
+  ctx.drawImage(im, ovBox.u0, ovBox.v0, ovBox.u1 - ovBox.u0, ovBox.v1 - ovBox.v0);
+  ctx.restore();
+}
+
+
+/* ---------- confetti ---------- */
+const confetti = [];
+function spawnConfetti() {
+  const cols = modelKey === "tulip"
+    ? ["#ff7a7a", "#e84a4a", "#7ac143", "#3a9a2e", "#feca57", "#ffffff"]
+    : ["#ff9f43", "#ee5a24", "#feca57", "#00d27a", "#54a0ff", "#ff6b81"];
+  for (let i = 0; i < 140; i++) {
+    confetti.push({
+      x: Math.random() * W, y: -20 - Math.random() * H * 0.5,
+      vx: (Math.random() - 0.5) * 2, vy: 2 + Math.random() * 4,
+      s: 5 + Math.random() * 7, c: cols[i % cols.length], r: Math.random() * 6
+    });
+  }
+}
+
+function render(t) {
+  requestAnimationFrame(render);
+  ctx.clearRect(0, 0, W, H);
+  const step = STEPS[idx];
+  if (!step || step.key !== "face") foxAng = null;
+  if (!step || !step.overlay) { ovAng = null; ovBox = null; }
+  if (!running) return;
+
+  const sh = state.shape;
+  if (sh && sh.pts.length >= 3 && step) {
+    disp = smoothPts(sh.pts, disp);
+    const matching = hold > 0 || advancing || step.manual;
+    outline(disp, matching ? "#00ff88" : "#ffffff");
+
+    if (step.key === "face" && modelKey === "fox") drawFox(disp);
+    if (step.overlay) drawOverlay(step, sh);
+  } else {
+    disp = null;
+  }
+
+  /* fold guide: drawn on the live paper (kept only briefly if a hand hides it) */
+  if (step && guide.pts && !advancing && !isPlace(step) && GUIDE_N[step.key]) {
+    guide.disp = smoothPts(guide.pts, guide.disp);
+    drawGuide(step.key, guide.disp, t);
+  }
+
+  confetti.forEach(p => {
+    p.x += p.vx; p.y += p.vy; p.r += 0.15;
+    ctx.save();
+    ctx.translate(p.x, p.y); ctx.rotate(p.r);
+    ctx.fillStyle = p.c; ctx.fillRect(-p.s / 2, -p.s / 2, p.s, p.s * 0.6);
+    ctx.restore();
+  });
+  for (let i = confetti.length - 1; i >= 0; i--) if (confetti[i].y > H + 30) confetti.splice(i, 1);
+}
+</script>
+
+</body>
+</html>
